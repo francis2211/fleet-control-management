@@ -1,0 +1,40 @@
+#!/bin/bash
+set -euo pipefail
+export KUBECONFIG=/root/.kube/config
+
+# Session-unique, DNS-safe lab name
+RAW_ID="${INSTRUQT_PARTICIPANT_ID:-${_SANDBOX_ID:-$(hostname)}}"
+SAFE_ID="$(echo "$RAW_ID" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9\n-' '-' | sed 's/^-*//; s/-*$//' | cut -c1-30)"
+LAB_NAME="fleet-control-lab-${SAFE_ID}"
+echo "$LAB_NAME" > /root/fleet-lab-name.txt
+
+# Pre-stage the Helm repo (plumbing, not a learning objective)
+helm repo add newrelic https://helm-charts.newrelic.com >/dev/null 2>&1 || true
+helm repo update >/dev/null
+
+# Render values file; fleet_id is intentionally left for the learner
+cat > /root/agent-control-values.yaml <<VALUES
+global:
+  cluster: ${LAB_NAME}
+  licenseKey: ${NEW_RELIC_LICENSE_KEY}
+
+agentControlDeployment:
+  chartValues:
+    systemIdentity:
+      organizationId: ${NR_SYSTEM_IDENTITY_ORG_ID}
+      parentIdentity:
+        clientId: ${NR_SYSTEM_IDENTITY_CLIENT_ID}
+        clientSecret: ${NR_SYSTEM_IDENTITY_CLIENT_SECRET}
+    config:
+      fleet_control:
+        enabled: true
+        fleet_id: REPLACE_WITH_YOUR_FLEET_ID
+VALUES
+chmod 600 /root/agent-control-values.yaml
+
+# Verification tail
+test -n "$(cat /root/fleet-lab-name.txt)" || { echo "FATAL: fleet-lab-name.txt not populated"; exit 1; }
+grep -q 'REPLACE_WITH_YOUR_FLEET_ID' /root/agent-control-values.yaml || { echo "FATAL: values.yaml missing fleet_id placeholder"; exit 1; }
+grep -q "$(cat /root/fleet-lab-name.txt)" /root/agent-control-values.yaml || { echo "FATAL: values.yaml cluster name not substituted"; exit 1; }
+helm repo list | grep -q newrelic || { echo "FATAL: newrelic helm repo not added"; exit 1; }
+exit 0

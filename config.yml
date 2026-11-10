@@ -1,0 +1,34 @@
+version: "3"
+
+virtualmachines:
+  # k3s pre-installed and ready (instruqt/k3s-v1-33-4 boots with the cluster already running).
+  # n1-standard-4 is the documented minimum for a Kubernetes workload on an Instruqt VM.
+  # nested_virtualization is required for k3s/containerd even on the pre-baked image.
+  # No allow_external_ingress / provision_ssl_certificate: nothing on this VM is exposed to
+  # learners via a service/website tab — the only browser-facing surface in this track is the
+  # external New Relic SaaS UI (see virtualbrowsers below), not anything hosted on workstation.
+  - name: workstation
+    image: instruqt/k3s-v1-33-4
+    machine_type: n1-standard-4
+    shell: /bin/bash
+    nested_virtualization: true
+
+virtualbrowsers:
+  # Fleet Control / New Relic login. Login redirects to the account's Fleet Control UI.
+  # May need to become an account-specific URL at generation time once the real New Relic
+  # account for this track is known.
+  - name: fleet-control
+    url: https://one.newrelic.com
+
+secrets:
+  # Shared New Relic account credentials for this track (single shared account across all
+  # concurrent learner sessions, per the track plan's confirmed decisions). Real values are
+  # supplied by the user at generation time — these are placeholder names only.
+  - name: NEW_RELIC_LICENSE_KEY
+    value: REPLACE_AT_GENERATION_TIME
+  - name: NR_SYSTEM_IDENTITY_ORG_ID
+    value: REPLACE_AT_GENERATION_TIME
+  - name: NR_SYSTEM_IDENTITY_CLIENT_ID
+    value: REPLACE_AT_GENERATION_TIME
+  - name: NR_SYSTEM_IDENTITY_CLIENT_SECRET
+    value: REPLACE_AT_GENERATION_TIME

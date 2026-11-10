@@ -1,0 +1,3 @@
+#!/bin/bash
+# Deployed Infrastructure agent persists into later challenges.
+exit 0

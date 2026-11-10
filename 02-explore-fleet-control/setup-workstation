@@ -1,0 +1,23 @@
+#!/bin/bash
+set -euo pipefail
+export KUBECONFIG=/root/.kube/config
+
+# Helper for step 3. Runs the cross-check and records that the learner ran it.
+cat > /root/check-agent-control-version.sh <<'HELPER'
+#!/bin/bash
+export KUBECONFIG=/root/.kube/config
+helm list -n newrelic-agent-control -o json \
+  | jq -r '.[] | select(.name=="agent-control-deployment") | "chart: \(.chart)  app_version: \(.app_version)"'
+touch /root/.agent-control-version-checked
+HELPER
+chmod +x /root/check-agent-control-version.sh
+rm -f /root/.agent-control-version-checked
+
+# Re-assert prerequisites from challenge 1
+helm list -n newrelic-agent-control -o json | jq -e 'map(select(.status=="deployed")) | length >= 3' >/dev/null \
+  || { echo "FATAL: expected Agent Control Helm releases from Challenge 1 are not deployed"; exit 1; }
+! grep -q 'REPLACE_WITH_YOUR_FLEET_ID' /root/agent-control-values.yaml \
+  || { echo "FATAL: fleet_id from Challenge 1 is missing or still a placeholder"; exit 1; }
+test -n "$(cat /root/fleet-lab-name.txt 2>/dev/null)" \
+  || { echo "FATAL: session lab name from Challenge 1 is missing"; exit 1; }
+exit 0

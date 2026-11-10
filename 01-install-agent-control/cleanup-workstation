@@ -1,0 +1,3 @@
+#!/bin/bash
+# Nothing to clean up: later challenges build on the installed Agent Control.
+exit 0

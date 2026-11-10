@@ -1,0 +1,32 @@
+#!/bin/bash
+export KUBECONFIG=/root/.kube/config
+FAILS=()
+
+# 1. A Ready HelmRelease targeting the sub-agents namespace
+kubectl get helmrelease -A -o json 2>/dev/null | jq -e '
+  [.items[]
+   | select(.spec.targetNamespace=="newrelic" or .metadata.namespace=="newrelic")
+   | select(any(.status.conditions[]?; .type=="Ready" and .status=="True"))] | length >= 1' >/dev/null \
+  || FAILS+=("No Flux HelmRelease targeting the newrelic namespace was found (or it isn't Ready yet) - confirm you clicked Start deployment in Step 3 and give Flux a few minutes to reconcile.")
+
+# 2. Infra pods running
+TOTAL=$(kubectl get pods -n newrelic --no-headers 2>/dev/null | wc -l)
+NOT_RUNNING=$(kubectl get pods -n newrelic --no-headers 2>/dev/null | awk '$3!="Running"' | wc -l)
+if [ "$TOTAL" -lt 1 ] || [ "$NOT_RUNNING" -gt 0 ]; then
+  FAILS+=("No Infrastructure agent pods are Running in the newrelic namespace yet - check 'kubectl get pods -n newrelic' and 'kubectl describe pod' on anything not Running.")
+fi
+
+# 3. Process metrics actually in the deployed values
+kubectl get helmrelease -A -o json 2>/dev/null | jq -e '[.items[].spec.values] | tostring | test("enableProcessMetrics\":true")' >/dev/null \
+  || FAILS+=("The deployed configuration doesn't show enableProcessMetrics: true - double check you edited the chart_values.newrelic-infrastructure block in Step 2 before saving.")
+
+# 4. No regression
+helm list -n newrelic-agent-control -o json 2>/dev/null | jq -e 'map(select(.status=="deployed")) | length >= 3' >/dev/null \
+  || FAILS+=("Agent Control's Helm releases from Challenge 1 are no longer all deployed.")
+
+if [ "${#FAILS[@]}" -gt 0 ]; then
+  MSG=""; for f in "${FAILS[@]}"; do MSG+="- $f "; done
+  fail-message "$MSG"
+  exit 1
+fi
+exit 0

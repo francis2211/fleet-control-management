@@ -1,0 +1,53 @@
+##############################################################################
+# Instruqt GitHub Actions Workflow - PROMOTE
+#
+# Pulls the DEV track back from Instruqt (including edits made in the web UI),
+# converts it back to the PROD variant using the prod track id, and commits it.
+# Run it from a non-main branch and open a PR.
+##############################################################################
+name: promote
+
+env:
+  TRACK_DIR: .
+  INSTRUQT_TOKEN: ${{ secrets.INSTRUQT_TOKEN }}
+
+concurrency:
+  group: promote-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  workflow_dispatch:
+    inputs:
+      id:
+        description: Instruqt ID of the PROD track
+        required: true
+        type: string
+
+jobs:
+  PromoteTrack:
+    if: github.ref != 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v4
+
+      - name: Pull latest DEV track
+        uses: ./.github/actions/track-pull
+        with:
+          path: ${{ env.TRACK_DIR }}
+
+      - name: Update file permissions
+        run: sudo chmod -R a+rwx ${{ env.TRACK_DIR }}
+
+      - name: Promote dev track
+        uses: ./.github/actions/track-promote
+        with:
+          path: ${{ env.TRACK_DIR }}
+          id: ${{ inputs.id }}
+
+      - name: Commit Changes
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: Promoting track

@@ -1,0 +1,26 @@
+#!/bin/bash
+set -uo pipefail
+export KUBECONFIG=/root/.kube/config
+NS=newrelic-agent-control
+
+# NOTE: no New Relic API key is provisioned, so this cannot create a real fleet.
+# A GUID-shaped value satisfies the local check but is NOT a real Fleet Control connection.
+if grep -q 'REPLACE_WITH_YOUR_FLEET_ID' /root/agent-control-values.yaml; then
+    FAKE_ID="$(uuidgen 2>/dev/null || python3 -c 'import uuid; print(uuid.uuid4())')"
+    sed -i "s/REPLACE_WITH_YOUR_FLEET_ID/${FAKE_ID}/" /root/agent-control-values.yaml
+fi
+
+if ! helm status agent-control-bootstrap -n "$NS" 2>/dev/null | grep -q 'STATUS: deployed'; then
+    helm upgrade --install agent-control-bootstrap newrelic/agent-control-bootstrap \
+        -n "$NS" --create-namespace -f /root/agent-control-values.yaml
+fi
+
+# Wait for nested releases and pods
+for i in $(seq 1 60); do
+    helm status agent-control-deployment -n "$NS" 2>/dev/null | grep -q 'STATUS: deployed' && \
+    helm status agent-control-cd -n "$NS" 2>/dev/null | grep -q 'STATUS: deployed' && break
+    sleep 5
+done
+kubectl wait --for=condition=Ready pod --all -n "$NS" --timeout=300s \
+    --field-selector=status.phase!=Succeeded || true
+exit 0

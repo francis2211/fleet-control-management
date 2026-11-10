@@ -1,0 +1,22 @@
+#!/bin/bash
+set -uo pipefail
+export KUBECONFIG=/root/.kube/config
+NS=newrelic-agent-control
+
+# Repair challenge 1 state if needed
+if [ "$(helm list -n $NS -o json | jq 'map(select(.status=="deployed")) | length')" -lt 3 ]; then
+  helm upgrade --install agent-control-bootstrap newrelic/agent-control-bootstrap \
+    -n "$NS" --create-namespace -f /root/agent-control-values.yaml
+fi
+
+/root/check-agent-control-version.sh
+
+# Wait (bounded, up to ~5 min) for the same local signals check-workstation tests; do not fake them
+for i in $(seq 1 60); do
+  OLDEST=$(kubectl get pods -n "$NS" -o json | jq -r '[.items[].status.startTime] | min // empty')
+  START=$(date -d "$OLDEST" +%s 2>/dev/null || echo 0)
+  BAD=$(kubectl get pods -n "$NS" -o json | jq '[.items[] | select(.status.phase != "Succeeded" and .status.phase != "Running")] | length')
+  [ "$BAD" -eq 0 ] && [ $(( $(date +%s) - START )) -ge 300 ] && break
+  sleep 5
+done
+exit 0

@@ -1,0 +1,38 @@
+##############################################################################
+# Instruqt GitHub Actions Workflow - CREATE DEV
+#
+# Manually creates/updates the DEV variant of this track on Instruqt.
+# The DEV copy is created inside the runner only; nothing is committed.
+##############################################################################
+name: convert
+
+env:
+  TRACK_DIR: .
+  INSTRUQT_TOKEN: ${{ secrets.INSTRUQT_TOKEN }}
+
+concurrency:
+  group: convert-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  workflow_dispatch:
+
+jobs:
+  CreateDevTrack:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v4
+
+      - name: Install yq Package
+        uses: ./.github/actions/install-yq
+
+      - name: Create dev track
+        uses: ./.github/actions/track-dev
+        with:
+          path: ${{ env.TRACK_DIR }}
+
+      - name: Push dev track
+        uses: ./.github/actions/track-push
+        with:
+          path: ${{ env.TRACK_DIR }}

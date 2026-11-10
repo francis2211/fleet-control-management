@@ -1,0 +1,42 @@
+#!/bin/bash
+set -euo pipefail
+
+echo "Running track setup script on host workstation"
+
+# Wait for the Instruqt host bootstrap to finish
+until [ -f /opt/instruqt/bootstrap/host-bootstrap-completed ]; do
+    sleep 1
+done
+
+# Make sure kubectl is configured against the pre-installed k3s cluster
+if [ ! -f /root/.kube/config ] && [ -f /etc/rancher/k3s/k3s.yaml ]; then
+    mkdir -p /root/.kube
+    cp /etc/rancher/k3s/k3s.yaml /root/.kube/config
+fi
+grep -q 'KUBECONFIG' /root/.bashrc 2>/dev/null || echo 'export KUBECONFIG=/root/.kube/config' >> /root/.bashrc
+export KUBECONFIG=/root/.kube/config
+
+# Wait for the node to be Ready
+for i in $(seq 1 60); do
+    kubectl get nodes 2>/dev/null | grep -q ' Ready' && break
+    sleep 5
+done
+kubectl get nodes | grep -q ' Ready' || { echo "FATAL: k3s node not Ready"; exit 1; }
+
+# Install Helm 3 and jq (jq is used by the check scripts)
+if ! command -v helm >/dev/null 2>&1; then
+    curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+fi
+if ! command -v jq >/dev/null 2>&1; then
+    apt-get update -y && apt-get install -y jq
+fi
+
+# Verify track-level prerequisites
+helm version --short >/dev/null || { echo "FATAL: helm not installed"; exit 1; }
+for v in NEW_RELIC_LICENSE_KEY NR_SYSTEM_IDENTITY_ORG_ID NR_SYSTEM_IDENTITY_CLIENT_ID NR_SYSTEM_IDENTITY_CLIENT_SECRET; do
+    [ -n "${!v:-}" ] || { echo "FATAL: secret $v is not set"; exit 1; }
+done
+curl -sS -o /dev/null -w '%{http_code}' https://opamp.service.newrelic.com/v1/opamp | grep -qE '^[234]' \
+    || { echo "FATAL: cannot reach opamp.service.newrelic.com"; exit 1; }
+
+exit 0

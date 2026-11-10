@@ -1,0 +1,41 @@
+#!/bin/bash
+export KUBECONFIG=/root/.kube/config
+NS=newrelic-agent-control
+FAILS=()
+
+# 1. Fleet ID filled in (New Relic entity GUIDs are base64-style strings, not UUIDs)
+FLEET_ID="$(grep -E '^\s*fleet_id:' /root/agent-control-values.yaml | head -1 | sed -E 's/^\s*fleet_id:\s*//; s/["'\'']//g; s/\s+$//')"
+if [ -z "$FLEET_ID" ] || [ "$FLEET_ID" = "REPLACE_WITH_YOUR_FLEET_ID" ] || [ "${#FLEET_ID}" -lt 20 ] || ! echo "$FLEET_ID" | grep -qE '^[A-Za-z0-9_=+/|-]+$'; then
+    FAILS+=("Edit ~/agent-control-values.yaml and replace REPLACE_WITH_YOUR_FLEET_ID with the Entity guid of the fleet you created in Fleet Control.")
+fi
+
+# 2. Helm releases deployed
+for r in agent-control-bootstrap agent-control-deployment agent-control-cd; do
+    if ! helm status "$r" -n "$NS" 2>/dev/null | grep -q 'STATUS: deployed'; then
+        FAILS+=("The $r Helm release isn't deployed yet in the $NS namespace - run the helm upgrade --install command from the assignment, and give it a minute.")
+        break
+    fi
+done
+
+# 3. Pods running (ignore completed Job pods)
+NOT_RUNNING=$(kubectl get pods -n "$NS" --field-selector=status.phase!=Succeeded --no-headers 2>/dev/null | awk '$3!="Running"' | wc -l)
+TOTAL=$(kubectl get pods -n "$NS" --field-selector=status.phase!=Succeeded --no-headers 2>/dev/null | wc -l)
+if [ "$TOTAL" -lt 1 ] || [ "$NOT_RUNNING" -gt 0 ]; then
+    FAILS+=("Pods in $NS aren't all Running yet - check 'kubectl get pods -n $NS' and 'kubectl describe pod' on anything not Running.")
+fi
+
+# 4. No auth failure in logs
+for p in $(kubectl get pods -n "$NS" -o name 2>/dev/null); do
+    if kubectl logs -n "$NS" "$p" --all-containers 2>/dev/null | grep -qi 'Expired client secret'; then
+        FAILS+=("Agent Control logged an authentication error against Fleet Control - double check the fleet ID and that the system identity variables are present ('env | grep NR_SYSTEM_IDENTITY').")
+        break
+    fi
+done
+
+if [ "${#FAILS[@]}" -gt 0 ]; then
+    MSG=""
+    for f in "${FAILS[@]}"; do MSG+="- $f "; done
+    fail-message "$MSG"
+    exit 1
+fi
+exit 0

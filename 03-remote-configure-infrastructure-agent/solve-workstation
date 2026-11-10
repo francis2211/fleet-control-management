@@ -1,0 +1,54 @@
+#!/bin/bash
+set -uo pipefail
+export KUBECONFIG=/root/.kube/config
+NS=newrelic-agent-control
+
+# Repair challenge 1 state if needed
+if [ "$(helm list -n $NS -o json | jq 'map(select(.status=="deployed")) | length')" -lt 3 ]; then
+  helm upgrade --install agent-control-bootstrap newrelic/agent-control-bootstrap \
+    -n "$NS" --create-namespace -f /root/agent-control-values.yaml
+fi
+
+# No Fleet Control API key is provisioned, so apply the same HelmRepository/HelmRelease shape
+# Agent Control would generate, directly. Flux reconciles it regardless of who created it.
+# TODO: verify the chart name / values nesting by completing this challenge once through the real UI.
+if ! kubectl get helmrelease -A 2>/dev/null | grep -q solve-infrastructure; then
+kubectl apply -f - <<MANIFEST
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: solve-infrastructure
+  namespace: ${NS}
+spec:
+  interval: 30m
+  url: https://helm-charts.newrelic.com
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: solve-infrastructure
+  namespace: ${NS}
+spec:
+  interval: 3m
+  chart:
+    spec:
+      chart: newrelic-infrastructure
+      sourceRef:
+        kind: HelmRepository
+        name: solve-infrastructure
+  targetNamespace: newrelic
+  install:
+    createNamespace: true
+  values:
+    enableProcessMetrics: true
+MANIFEST
+fi
+
+# Wait (bounded, ~5 min) for Ready release and Running pods
+for i in $(seq 1 60); do
+  kubectl get helmrelease -A -o json | jq -e '[.items[] | select(.spec.targetNamespace=="newrelic") | select(any(.status.conditions[]?; .type=="Ready" and .status=="True"))] | length >= 1' >/dev/null \
+    && [ "$(kubectl get pods -n newrelic --no-headers 2>/dev/null | awk '$3!="Running"' | wc -l)" -eq 0 ] \
+    && [ "$(kubectl get pods -n newrelic --no-headers 2>/dev/null | wc -l)" -ge 1 ] && break
+  sleep 5
+done
+exit 0

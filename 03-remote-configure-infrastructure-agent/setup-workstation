@@ -1,0 +1,11 @@
+#!/bin/bash
+set -euo pipefail
+export KUBECONFIG=/root/.kube/config
+
+helm list -n newrelic-agent-control -o json | jq -e 'map(select(.status=="deployed")) | length >= 3' >/dev/null \
+  || { echo "FATAL: expected Agent Control Helm releases from Challenge 1 are not deployed"; exit 1; }
+! grep -q 'REPLACE_WITH_YOUR_FLEET_ID' /root/agent-control-values.yaml \
+  || { echo "FATAL: fleet_id from Challenge 1 is missing or still a placeholder"; exit 1; }
+helm list -A -o json | jq -e 'length == 3' >/dev/null \
+  || { echo "FATAL: expected exactly 3 Helm releases at start - an agent appears to already be deployed"; exit 1; }
+exit 0

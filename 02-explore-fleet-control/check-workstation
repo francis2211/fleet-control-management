@@ -1,0 +1,41 @@
+#!/bin/bash
+export KUBECONFIG=/root/.kube/config
+NS=newrelic-agent-control
+FAILS=()
+
+# 1. Challenge 1 state intact
+helm list -n "$NS" -o json 2>/dev/null | jq -e 'map(select(.status=="deployed")) | length >= 3' >/dev/null \
+  || FAILS+=("Agent Control's Helm releases from the last challenge are no longer all deployed - re-run the helm upgrade --install command from Challenge 1.")
+
+# 2. Cross-check was run
+[ -f /root/.agent-control-version-checked ] \
+  || FAILS+=("Run ~/check-agent-control-version.sh from Step 3 to cross-check the chart version Fleet Control showed you.")
+
+# 3. Stably connected (local proxy for 'healthy')
+PODS=$(kubectl get pods -n "$NS" -o json 2>/dev/null)
+BAD=$(echo "$PODS" | jq '[.items[] | select(.status.phase != "Succeeded" and .status.phase != "Running")] | length' 2>/dev/null)
+RESTARTS=$(echo "$PODS" | jq '[.items[].status.containerStatuses[]?.restartCount] | max // 0' 2>/dev/null)
+OLDEST=$(echo "$PODS" | jq -r '[.items[].status.startTime] | min // empty' 2>/dev/null)
+AGE_OK=0
+if [ -n "$OLDEST" ]; then
+  START=$(date -d "$OLDEST" +%s 2>/dev/null || echo 0)
+  [ $(( $(date +%s) - START )) -ge 300 ] && AGE_OK=1
+fi
+AUTH_ERR=0
+for p in $(kubectl get pods -n "$NS" -o name 2>/dev/null); do
+  kubectl logs -n "$NS" "$p" --all-containers 2>/dev/null | grep -qi 'Expired client secret' && AUTH_ERR=1
+done
+if [ "${BAD:-1}" -ne 0 ] || [ "${RESTARTS:-99}" -gt 2 ] || [ "$AUTH_ERR" -eq 1 ] || [ "$AGE_OK" -ne 1 ]; then
+  FAILS+=("Agent Control doesn't look stably connected yet (pods not all Running, repeated restarts, an auth error in the logs, or less than 5 minutes since start) - check 'kubectl get pods -n $NS' and the Managed Entities table on your fleet's Summary tab.")
+fi
+
+# 4. Nothing beyond Agent Control installed
+[ "$(helm list -A -o json 2>/dev/null | jq 'length')" = "3" ] \
+  || FAILS+=("Something beyond Agent Control appears to be installed already - this challenge is read-only; the next challenge is where you deploy your first agent.")
+
+if [ "${#FAILS[@]}" -gt 0 ]; then
+  MSG=""; for f in "${FAILS[@]}"; do MSG+="- $f "; done
+  fail-message "$MSG"
+  exit 1
+fi
+exit 0

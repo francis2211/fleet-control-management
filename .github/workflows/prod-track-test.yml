@@ -1,0 +1,74 @@
+##############################################################################
+# Instruqt GitHub Actions Workflow - PRODUCTION
+#
+# On push to main: validate / push / test the track. Skipped if the track has
+# the "no-ci" tag on Instruqt. On first run (no id in track.yml yet) the tag
+# check is skipped and the id assigned by Instruqt is committed back.
+#
+# Requires the INSTRUQT_TOKEN repository secret.
+##############################################################################
+name: production
+
+env:
+  TRACK_DIR: .
+  INSTRUQT_TOKEN: ${{ secrets.INSTRUQT_TOKEN }}
+
+concurrency:
+  group: prod-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  TestProdTrack:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v4
+
+      - name: Install yq Package
+        uses: ./.github/actions/install-yq
+
+      - name: Read track id
+        id: track
+        run: echo "id=$(yq '.id // ""' ${{ env.TRACK_DIR }}/track.yml)" >> "$GITHUB_OUTPUT"
+
+      # Succeeds when the "no-ci" tag is NOT present. Skipped on the first push (no id yet).
+      - name: Check CI
+        id: check-ci
+        if: steps.track.outputs.id != ''
+        uses: ./.github/actions/track-tags
+        with:
+          id: ${{ steps.track.outputs.id }}
+        continue-on-error: true
+
+      - name: Track Validate
+        if: steps.track.outputs.id == '' || steps.check-ci.outcome == 'success'
+        uses: ./.github/actions/track-validate
+        with:
+          path: ${{ env.TRACK_DIR }}
+
+      - name: Track Push
+        if: steps.track.outputs.id == '' || steps.check-ci.outcome == 'success'
+        uses: ./.github/actions/track-push
+        with:
+          path: ${{ env.TRACK_DIR }}
+
+      - name: Track Test
+        if: steps.track.outputs.id == '' || steps.check-ci.outcome == 'success'
+        uses: ./.github/actions/track-test
+        with:
+          path: ${{ env.TRACK_DIR }}
+
+      # Persist the id Instruqt writes into track.yml / assignment.md on first push
+      - name: Commit Changes
+        if: steps.track.outputs.id == ''
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: Add Instruqt track ids

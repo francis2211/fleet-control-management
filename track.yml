@@ -1,0 +1,22 @@
+slug: fleet-control-management
+title: Fleet Control - Centralized Management of New Relic Agents
+teaser: Install Agent Control on Kubernetes and manage New Relic agents remotely
+  from Fleet Control.
+description: |-
+  Learn how to use New Relic Fleet Control to centrally manage the lifecycle of
+  your New Relic agents. You will install Agent Control on a Kubernetes cluster,
+  connect it to Fleet Control, explore fleet health, and remotely configure the
+  New Relic Infrastructure agent without touching the cluster by hand.
+icon: https://cdn.instruqt.com/assets/templates/kubernetes.png
+tags:
+- dev
+owner: newrelic
+developers:
+- REPLACE_WITH_DEVELOPER_EMAIL
+maintenance: true
+show_timer: true
+timelimit: 4500
+lab_config:
+  overlay: false
+  width: 25
+  position: right

@@ -1,0 +1,53 @@
+##############################################################################
+# Instruqt GitHub Actions Workflow - DEV
+#
+# On every pull request: convert this track to its DEV variant, then
+# validate / push / test it on Instruqt. The track lives at the repo root.
+#
+# Requires the INSTRUQT_TOKEN repository secret.
+##############################################################################
+name: development
+
+env:
+  TRACK_DIR: .
+  INSTRUQT_TOKEN: ${{ secrets.INSTRUQT_TOKEN }}
+
+concurrency:
+  group: dev-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+  workflow_dispatch:
+
+jobs:
+  TestDevTrack:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v4
+
+      - name: Install yq Package
+        uses: ./.github/actions/install-yq
+
+      - name: Convert to DEV version
+        uses: ./.github/actions/track-dev
+        with:
+          path: ${{ env.TRACK_DIR }}
+
+      - name: Track Validate
+        uses: ./.github/actions/track-validate
+        with:
+          path: ${{ env.TRACK_DIR }}
+
+      # Push first so the PR's changes (not a stale remote copy) are what gets tested
+      - name: Track Push
+        uses: ./.github/actions/track-push
+        with:
+          path: ${{ env.TRACK_DIR }}
+
+      - name: Track Test
+        uses: ./.github/actions/track-test
+        with:
+          path: ${{ env.TRACK_DIR }}
